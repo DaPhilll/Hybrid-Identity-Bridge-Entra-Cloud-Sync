@@ -1,0 +1,21 @@
+{
+  "displayName": "Block Legacy Authentication",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeUsers": ["All"],
+      "excludeUsers": [
+        "<EMERGENCY_ACCESS_ACCOUNT_OBJECT_ID>"
+      ]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "clientAppTypes": ["exchangeActiveSync", "other"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["block"]
+  },
+  "_comment": "clientAppTypes 'other' covers legacy protocols that do not support modern authentication (IMAP, POP, SMTP AUTH, older Office desktop clients). Enabling this policy in report-only mode first is the recommended approach, so you can confirm no legitimate legacy-auth dependency exists before switching state to enforced."
+}

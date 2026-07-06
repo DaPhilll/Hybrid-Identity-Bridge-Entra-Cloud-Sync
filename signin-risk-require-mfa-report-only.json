@@ -1,0 +1,21 @@
+{
+  "displayName": "Sign-In Risk: Require MFA (Report-Only)",
+  "state": "enabledForReportingButNotEnforced",
+  "conditions": {
+    "users": {
+      "includeUsers": ["All"],
+      "excludeUsers": [
+        "<EMERGENCY_ACCESS_ACCOUNT_OBJECT_ID>"
+      ]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "signInRiskLevels": ["high", "medium"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa"]
+  },
+  "_comment": "Requires Entra ID P2 licensing. Deployed in report-only mode (enabledForReportingButNotEnforced) per Microsoft's guidance: confirm impact in the sign-in logs before switching state to 'enabled'. Do not combine sign-in risk and user risk conditions in the same policy; keep this separate from the user risk policy below. Legacy standalone Identity Protection risk policies retire October 1, 2026, so this is built directly as a Conditional Access risk-based policy rather than the deprecated legacy configuration."
+}

@@ -1,0 +1,32 @@
+{
+  "displayName": "Require MFA for Directory Roles",
+  "state": "enabled",
+  "conditions": {
+    "users": {
+      "includeRoles": [
+        "<GLOBAL_ADMINISTRATOR_ROLE_TEMPLATE_ID>",
+        "<PRIVILEGED_ROLE_ADMINISTRATOR_ROLE_TEMPLATE_ID>"
+      ],
+      "excludeUsers": [
+        "<EMERGENCY_ACCESS_ACCOUNT_OBJECT_ID>"
+      ]
+    },
+    "applications": {
+      "includeApplications": ["All"]
+    },
+    "clientAppTypes": ["all"]
+  },
+  "grantControls": {
+    "operator": "OR",
+    "builtInControls": ["mfa"]
+  },
+  "sessionControls": {
+    "signInFrequency": {
+      "value": 4,
+      "type": "hours",
+      "isEnabled": true
+    }
+  },
+  "_comment": "The bracketed values above are placeholders, not real IDs. Role template IDs are consistent for built-in roles across tenants, but look yours up under Entra ID > Roles and administrators > [role name] > Template ID before deploying, rather than trusting a hardcoded value. excludeUsers must reference a real break-glass account object ID from your own tenant to avoid lockout."
+}
+
