@@ -38,6 +38,8 @@ This project extends the shared lab environment (VMware Workstation Pro, `10.10.
 * **Technical Challenges & Resolution:**
   * **Challenge:** Microsoft is retiring the legacy standalone Identity Protection risk policy configuration on October 1, 2026, in favor of risk-based conditions inside Conditional Access itself.
   * **Resolution:** The risk policies in this repository are built directly as Conditional Access policies using the `userRiskLevels` and `signInRiskLevels` condition fields, rather than the legacy configuration path, so they don't need to be migrated later.
+  * **Challenge:** `Get-Service -Name` matches a service's short name, not its display name, and Microsoft's rebrand changed the agent display names from "Microsoft Azure AD Connect ..." to "Microsoft Entra Connect ...". Looking up a display name through `-Name` reports the agent as missing on a healthy host.
+  * **Resolution:** The health check queries the short name `AADConnectProvisioningAgent`, which survived the rebrand, and falls back to a wildcard display-name match that works against either branding.
 
 ## 4. Cyber Kill Chain & Threat Lifecycle Mapping
 * **Initial Access:** Blocking legacy authentication protocols removes a common credential-stuffing path that bypasses modern authentication and Conditional Access entirely.
@@ -87,36 +89,74 @@ if ($installerProcess.ExitCode -eq 0) {
 ### Agent Health Verification
 `scripts/verify-agent-health.ps1` — checks that both provisioning agent services are installed and running, and confirms the agent version.
 ```powershell
-$services = @(
-    "Microsoft Azure AD Connect Agent Updater",
-    "Microsoft Azure AD Connect Provisioning Agent"
-)
+# Verifies that the Microsoft Entra provisioning agent services are installed
+# and running on the local host. Run after installation and configuration.
+#
+# Service naming note: Get-Service -Name matches the service short name, not the
+# display name. The provisioning agent's short name is AADConnectProvisioningAgent
+# and has stayed stable across Microsoft's Azure AD to Entra rebrand, while the
+# display name changed from "Microsoft Azure AD Connect Provisioning Agent" to
+# "Microsoft Entra Connect Provisioning Agent". Display-name lookups below use
+# wildcards so they match either branding.
 
 $allHealthy = $true
 
-foreach ($serviceName in $services) {
-    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+function Test-AgentService {
+    param(
+        [string]$Label,
+        [string]$ShortName,
+        [string]$DisplayPattern
+    )
+
+    $service = $null
+    if ($ShortName) {
+        $service = Get-Service -Name $ShortName -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $service -and $DisplayPattern) {
+        $service = Get-Service -DisplayName $DisplayPattern -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+    }
 
     if ($null -eq $service) {
-        Write-Host "MISSING | $serviceName is not installed on this host."
-        $allHealthy = $false
-        continue
+        Write-Host "MISSING | $Label is not installed on this host."
+        return $false
     }
 
     if ($service.Status -eq "Running") {
-        Write-Host "OK      | $serviceName is running."
-    } else {
-        Write-Host "STOPPED | $serviceName is installed but not running (status: $($service.Status))."
-        $allHealthy = $false
+        Write-Host "OK      | $Label is running (service: $($service.Name))."
+        return $true
     }
+
+    Write-Host "STOPPED | $Label is installed but not running (status: $($service.Status))."
+    return $false
 }
 
-$agentPath = "C:\Program Files\Microsoft Azure AD Connect Provisioning Agent\AADConnectProvisioningAgent.exe"
-if (Test-Path $agentPath) {
+if (-not (Test-AgentService -Label "Provisioning Agent" `
+        -ShortName "AADConnectProvisioningAgent" `
+        -DisplayPattern "*Connect Provisioning Agent*")) {
+    $allHealthy = $false
+}
+
+if (-not (Test-AgentService -Label "Agent Updater" `
+        -ShortName $null `
+        -DisplayPattern "*Connect Agent Updater*")) {
+    $allHealthy = $false
+}
+
+# Microsoft's documentation lists the install directory under both names,
+# so check each rather than assuming one.
+$candidatePaths = @(
+    "C:\Program Files\Microsoft Azure AD Connect Provisioning Agent\AADConnectProvisioningAgent.exe",
+    "C:\Program Files\Azure AD Connect Provisioning Agent\AADConnectProvisioningAgent.exe"
+)
+
+$agentPath = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if ($agentPath) {
     $version = (Get-Item $agentPath).VersionInfo.ProductVersion
     Write-Host "Agent version: $version"
 } else {
-    Write-Host "MISSING | Agent executable not found at expected path: $agentPath"
+    Write-Host "MISSING | Agent executable not found in any expected install directory."
     $allHealthy = $false
 }
 
@@ -150,7 +190,7 @@ All four policies below were created in the tenant and confirmed active under En
 `policies/signin-risk-require-mfa-report-only.json` — applies to High and Medium sign-in risk levels, requiring MFA. Deployed in report-only mode, per Microsoft's own recommended first step, to confirm impact before enforcing.
 
 ### User Risk: Require Password Change (Report-Only)
-`policies/user-risk-require-password-change-report-only.json` — applies to High user risk, requiring a password change. Password writeback was enabled for hybrid users synced from `SRV-DC01` to support this remediation path.
+`policies/user-risk-require-password-change-report-only.json` — applies to High user risk, requiring a password change. The grant control is `passwordChange` alone; pairing it with `mfa` under an `OR` operator would let a user clear the policy with MFA and leave the compromised credential unchanged. Password writeback was enabled for hybrid users synced from `SRV-DC01` to support this remediation path.
 
 ## 9. Hardening & Future Enhancements
 * **Current Posture:** The sync agent is confirmed healthy and active. Both admin-role and legacy-authentication policies are deployed and enforced. The two risk-based policies remain in report-only mode by design, matching Microsoft's own recommended posture before moving to enforcement, not an incomplete step.
